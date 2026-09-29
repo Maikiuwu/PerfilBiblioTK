@@ -2,10 +2,10 @@
 
 Parte del sistema BiblioTK (ver `../CLAUDE.md`). Permite al usuario con sesión consultar, editar y eliminar sus propios datos de la tabla `usuarios`.
 
-- **Puerto:** 3003 (`PORT` en `.env`)
+- **Puerto:** 3002 (`PORT` en `.env`). Ojo: el `.env` de BackDashboardBiblioTK también usa 3002.
 - **Arranque:** `npm run dev` (`node --watch src/app.js`). Solo levanta el servidor si `testConnection()` (un `SELECT 1`) funciona.
 - **Dependencias clave:** express 5, mysql2, cookie-parser, jsonwebtoken, bcrypt, cors y dotenv (versiones fijas, sin `^`)
-- **Variables (`.env`):** `PORT=3003`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` y `JWT_SECRET`. **`JWT_SECRET` debe ser el mismo de InicioSesionBiblioTK**: este servicio no emite tokens, solo verifica la cookie `token_acceso`.
+- **Variables (`.env`):** `PORT=3002`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT`, `JWT_SECRET` y `ALLOWED_ORIGIN_*` (orígenes de CORS, uno por variable). **`JWT_SECRET` debe ser el mismo de InicioSesionBiblioTK**: este servicio no emite tokens, solo verifica la cookie `token_acceso`.
 
 ## Estructura
 
@@ -26,7 +26,7 @@ La cookie la emite `localhost:3001`, pero también llega a `:3003`: las cookies 
 | PUT | `/PerfilBiblioTK/Perfil` | `actualizarPerfil` | Body `{ nombres, apellidos, email, cc, celular, nombreUsuario }` → `{ message, perfil }` |
 | DELETE | `/PerfilBiblioTK/Perfil` | `eliminarPerfil` | Body `{ contrasena }` → `{ message }` y borra la cookie |
 
-Todas las rutas `/Perfil` pasan por `verificarSesion` y actúan solo sobre `req.sesion.id` (el `sub` del JWT). Los errores de datos responden `{ campo, message }` para que el front marque el campo. La usa `FrontBiblioTK/src/service/ProfileService.js`.
+Todas las rutas `/Perfil` pasan por `verificarSesion` y actúan solo sobre `req.sesion.id` (el `sub` del JWT). Los errores de datos responden `{ campo, message }` para que el front marque el campo. La usan `BiblioTK-front-user` y `BiblioTK-front-admin` (`src/service/ProfileService.js`, página `/perfil` en ambas).
 
 ### PUT /Perfil
 
@@ -37,14 +37,15 @@ Todas las rutas `/Perfil` pasan por `verificarSesion` y actúan solo sobre `req.
 ### DELETE /Perfil
 
 1. Sin `contrasena` → **400**.
-2. Si el rol guardado en la BD (no el del token) no es `usuario` → **403**: las cuentas de administración no se borran desde el perfil.
+2. Si el rol guardado en la BD (no el del token) es `superadmin` → **403**. Lectores (`usuario`) y bibliotecarios (`admin`) sí pueden borrar su cuenta.
 3. Contraseña incorrecta (bcrypt) → **403** `{ campo: "contrasena" }`.
 4. Con préstamos `ACTIVO` o `VENCIDO` → **409**.
-5. `DELETE FROM usuarios` + `clearCookie("token_acceso")` → **200**.
+5. Si es `admin` y no queda ningún otro `admin` → **409**: sin bibliotecario nadie podría administrar el catálogo.
+6. En una transacción: deja en NULL los datos personales de sus filas en `reportes` (el historial de préstamos queda anónimo; si la tabla todavía no existe, se ignora) y `DELETE FROM usuarios`. Luego `clearCookie("token_acceso")` → **200**.
 
 ## Problemas conocidos
 
-- `prestamos.usuario_id` tiene `ON DELETE CASCADE`: al borrar una cuenta también se borran sus préstamos `DEVUELTO` (los pendientes bloquean el borrado).
+- `prestamos.usuario_id` tiene `ON DELETE CASCADE`: al borrar una cuenta también se borran sus préstamos `DEVUELTO` (los pendientes bloquean el borrado); su copia en `reportes` se conserva, sin datos personales.
 - La tabla `usuarios` no tiene índices `UNIQUE`: la unicidad se comprueba en código, así que dos peticiones simultáneas podrían colarse.
 - Hay cuentas antiguas con datos que no cumplen la validación (por ejemplo, correos sin dominio): para guardar cualquier cambio primero deben corregirlos.
 - El JWT no se renueva al editar: si cambia el correo, la cabecera del front muestra el anterior hasta el siguiente inicio de sesión.

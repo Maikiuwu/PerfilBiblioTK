@@ -90,6 +90,39 @@ function mismoTexto(a, b) {
   return String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
 }
 
+const rolesQuePuedenBorrarse = ["usuario", "admin"];
+
+// La tabla reportes (de PrestamosBiblioTK) conserva el historial de préstamos aunque se
+// borre la cuenta: antes de borrarla se le quitan los datos personales, en la misma transacción
+async function borrarCuenta(usuarioId) {
+  const conexion = await pool.getConnection();
+
+  try {
+    await conexion.beginTransaction();
+
+    try {
+      await conexion.query(
+        `UPDATE reportes
+         SET usuario_id = NULL, usuario_nombre = NULL, usuario_email = NULL,
+             usuario_cc = NULL, usuario_celular = NULL
+         WHERE usuario_id = ?`,
+        [usuarioId],
+      );
+    } catch (error) {
+      // Si PrestamosBiblioTK todavía no creó la tabla, no hay nada que anonimizar
+      if (error.code !== "ER_NO_SUCH_TABLE") throw error;
+    }
+
+    await conexion.query("DELETE FROM usuarios WHERE id = ?", [usuarioId]);
+    await conexion.commit();
+  } catch (error) {
+    await conexion.rollback().catch(() => undefined);
+    throw error;
+  } finally {
+    conexion.release();
+  }
+}
+
 async function buscarPerfil(id) {
   const [filas] = await pool.query(
     `SELECT ${columnasPerfil} FROM usuarios WHERE id = ? LIMIT 1`,
@@ -192,11 +225,12 @@ export async function eliminarPerfil(req, res, next) {
       return res.status(404).json({ message: "No se encontró el perfil" });
     }
 
-    // Se usa el rol guardado en la BD, no el del token, por si cambió después del login
-    if (usuario.rol !== "usuario") {
+    // Se usa el rol guardado en la BD, no el del token, por si cambió después del login.
+    // Lectores y bibliotecarios pueden borrar su cuenta; el superadministrador no
+    if (!rolesQuePuedenBorrarse.includes(usuario.rol)) {
       return res.status(403).json({
         message:
-          "Las cuentas de administración no se pueden eliminar desde el perfil.",
+          "Las cuentas de superadministrador no se pueden eliminar desde el perfil.",
       });
     }
 
@@ -223,7 +257,22 @@ export async function eliminarPerfil(req, res, next) {
       });
     }
 
-    await pool.query("DELETE FROM usuarios WHERE id = ?", [req.sesion.id]);
+    // Sin ningún bibliotecario nadie podría administrar el catálogo ni los préstamos
+    if (usuario.rol === "admin") {
+      const [[{ otros }]] = await pool.query(
+        "SELECT COUNT(*) AS otros FROM usuarios WHERE rol = 'admin' AND id <> ?",
+        [req.sesion.id],
+      );
+
+      if (Number(otros) === 0) {
+        return res.status(409).json({
+          message:
+            "No puedes eliminar la única cuenta de bibliotecario: primero debe existir otra.",
+        });
+      }
+    }
+
+    await borrarCuenta(req.sesion.id);
 
     res.clearCookie("token_acceso", {
       httpOnly: true,
