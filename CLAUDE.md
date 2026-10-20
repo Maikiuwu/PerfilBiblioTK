@@ -4,6 +4,7 @@ Parte del sistema BiblioTK (ver `../CLAUDE.md`). Permite al usuario con sesión 
 
 - **Puerto:** 3002 (`PORT` en `.env`). Ojo: el `.env` de BackDashboardBiblioTK también usa 3002.
 - **Arranque:** `npm run dev` (`node --watch src/app.js`). Solo levanta el servidor si `testConnection()` (un `SELECT 1`) funciona.
+- **Docker:** `Dockerfile` (node:24-alpine, solo dependencias de producción, usuario `node`, sin `.env`: la configuración llega por variables de entorno). Se orquesta desde `../InfraBiblioTK` (Compose y Kubernetes).
 - **Dependencias clave:** express 5, mysql2, cookie-parser, bcrypt, cors y dotenv (versiones fijas, sin `^`). `jsonwebtoken` sigue en `package.json`, pero ya no se usa.
 - **Variables (`.env`):** `PORT=3002`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` y `ALLOWED_ORIGIN_*` (orígenes de CORS, uno por variable). `JWT_SECRET` ya no hace falta: este servicio no emite sesiones, solo busca la de la cookie `token_acceso` en la tabla `sesiones` (la crea InicioSesionBiblioTK). Opcionales: `NOTIFICACIONES_URL` (por defecto `http://localhost:3006/NotificacionesBiblioTK`) y `NOTIFICACIONES_CLAVE`.
 
