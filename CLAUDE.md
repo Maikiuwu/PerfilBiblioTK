@@ -5,7 +5,7 @@ Parte del sistema BiblioTK (ver `../CLAUDE.md`). Permite al usuario con sesión 
 - **Puerto:** 3002 (`PORT` en `.env`). Ojo: el `.env` de BackDashboardBiblioTK también usa 3002.
 - **Arranque:** `npm run dev` (`node --watch src/app.js`). Solo levanta el servidor si `testConnection()` (un `SELECT 1`) funciona.
 - **Dependencias clave:** express 5, mysql2, cookie-parser, bcrypt, cors y dotenv (versiones fijas, sin `^`). `jsonwebtoken` sigue en `package.json`, pero ya no se usa.
-- **Variables (`.env`):** `PORT=3002`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` y `ALLOWED_ORIGIN_*` (orígenes de CORS, uno por variable). `JWT_SECRET` ya no hace falta: este servicio no emite sesiones, solo busca la de la cookie `token_acceso` en la tabla `sesiones` (la crea InicioSesionBiblioTK).
+- **Variables (`.env`):** `PORT=3002`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` y `ALLOWED_ORIGIN_*` (orígenes de CORS, uno por variable). `JWT_SECRET` ya no hace falta: este servicio no emite sesiones, solo busca la de la cookie `token_acceso` en la tabla `sesiones` (la crea InicioSesionBiblioTK). Opcionales: `NOTIFICACIONES_URL` (por defecto `http://localhost:3006/NotificacionesBiblioTK`) y `NOTIFICACIONES_CLAVE`.
 
 ## Estructura
 
@@ -14,6 +14,7 @@ Parte del sistema BiblioTK (ver `../CLAUDE.md`). Permite al usuario con sesión 
 - `src/middlewares/verificarSesion.js` — lee la cookie `token_acceso` (un valor aleatorio), busca su hash SHA-256 en `sesiones` (sin vencer) y deja `req.sesion = { id, email, rol }` con los datos actuales de `usuarios`. Sin cookie, con una sesión cerrada o vencida → 401. Pone `Cache-Control: no-store` en todas las respuestas con sesión (es el mismo archivo en Materiales y Préstamos)
 - `src/router/routerBiblioTK.js`
 - `src/controllers/perfilController.js` — `obtenerPerfil`, `actualizarPerfil`, `eliminarPerfil`
+- `src/utils/notificar.js` — `notificar(tipo, datos)`: avisa a NotificacionesBiblioTK después de cada cambio, sin esperar respuesta (si no está, solo queda en la consola). Emite `perfil.actualizado` (lo ven el superadmin y el dueño) y `usuario.eliminado` (el superadmin)
 
 La cookie la emite `localhost:3001`, pero también llega a `:3003`: las cookies no distinguen puertos.
 

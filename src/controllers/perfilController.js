@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
+import { notificar } from "../utils/notificar.js";
 
 const columnasPerfil = `id, nombres, apellidos, email, cc, celular,
   nombreusuario AS nombreUsuario, rol, fecharegistro AS fechaRegistro`;
@@ -194,6 +195,13 @@ export async function actualizarPerfil(req, res, next) {
       return res.status(404).json({ message: "No se encontró el perfil" });
     }
 
+    // Lo ven el superadministrador y el dueño del perfil (el rol solo decide quién, no viaja al front)
+    notificar("perfil.actualizado", {
+      usuarioId: req.sesion.id,
+      nombre: `${perfil.nombres} ${perfil.apellidos}`,
+      rol: req.sesion.rol,
+    });
+
     return res.json({
       message: "Perfil actualizado",
       perfil: await buscarPerfil(req.sesion.id),
@@ -216,7 +224,7 @@ export async function eliminarPerfil(req, res, next) {
     }
 
     const [filas] = await pool.query(
-      "SELECT password, rol FROM usuarios WHERE id = ? LIMIT 1",
+      "SELECT nombres, apellidos, password, rol FROM usuarios WHERE id = ? LIMIT 1",
       [req.sesion.id],
     );
     const usuario = filas[0];
@@ -273,6 +281,13 @@ export async function eliminarPerfil(req, res, next) {
     }
 
     await borrarCuenta(req.sesion.id);
+
+    // El superadministrador lo ve; el servicio de notificaciones además cierra los sockets de la cuenta
+    notificar("usuario.eliminado", {
+      usuarioId: req.sesion.id,
+      nombre: `${usuario.nombres} ${usuario.apellidos}`,
+      rol: usuario.rol,
+    });
 
     res.clearCookie("token_acceso", {
       httpOnly: true,
