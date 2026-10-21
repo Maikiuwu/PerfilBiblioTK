@@ -8,12 +8,10 @@ const columnasPerfil = `id, nombres, apellidos, email, cc, celular,
 const letras = "A-Za-zÁÉÍÓÚÜÑáéíóúüñ";
 const patronNombre = new RegExp(`^[${letras}]+(?:[ '-][${letras}]+)*$`);
 const patronEmail = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const patronCedula = /^[1-9]\d*$/;
 const patronCelular = /^\d{7,15}$/;
 
 const mensajesDuplicado = {
   email: "Ese correo ya está registrado en otra cuenta.",
-  cc: "Esa cédula ya está registrada en otra cuenta.",
   nombreUsuario: "Ese nombre de usuario ya está en uso.",
 };
 
@@ -23,12 +21,13 @@ function comoTexto(valor) {
     : "";
 }
 
+// La cédula no está: identifica a la persona y no se puede cambiar desde el perfil. Si llega
+// en el cuerpo, se ignora (igual que el registro ignora un rol)
 function normalizarPerfil(datos = {}) {
   return {
     nombres: comoTexto(datos.nombres),
     apellidos: comoTexto(datos.apellidos),
     email: comoTexto(datos.email).toLowerCase(),
-    cc: comoTexto(datos.cc),
     celular: comoTexto(datos.celular),
     nombreUsuario: comoTexto(datos.nombreUsuario),
   };
@@ -53,13 +52,6 @@ function validarPerfil(perfil) {
       campo: "apellidos",
       message:
         "Los apellidos deben tener entre 2 y 50 caracteres: letras, espacios, apóstrofes o guiones.",
-    };
-  }
-
-  if (!patronCedula.test(perfil.cc) || perfil.cc.length > 15) {
-    return {
-      campo: "cc",
-      message: "La cédula debe ser un número entero mayor que 0, de hasta 15 dígitos.",
     };
   }
 
@@ -157,19 +149,15 @@ export async function actualizarPerfil(req, res, next) {
 
     // La tabla no tiene índices UNIQUE: la unicidad se comprueba aquí, igual que en el registro
     const [duplicados] = await pool.query(
-      `SELECT email, cc, nombreusuario FROM usuarios
-       WHERE id <> ? AND (email = ? OR cc = ? OR nombreusuario = ?)
+      `SELECT email, nombreusuario FROM usuarios
+       WHERE id <> ? AND (email = ? OR nombreusuario = ?)
        LIMIT 1`,
-      [req.sesion.id, perfil.email, perfil.cc, perfil.nombreUsuario],
+      [req.sesion.id, perfil.email, perfil.nombreUsuario],
     );
 
     if (duplicados.length) {
       const [existente] = duplicados;
-      const campo = mismoTexto(existente.email, perfil.email)
-        ? "email"
-        : mismoTexto(existente.cc, perfil.cc)
-          ? "cc"
-          : "nombreUsuario";
+      const campo = mismoTexto(existente.email, perfil.email) ? "email" : "nombreUsuario";
 
       return res
         .status(409)
@@ -178,13 +166,12 @@ export async function actualizarPerfil(req, res, next) {
 
     const [resultado] = await pool.query(
       `UPDATE usuarios
-       SET nombres = ?, apellidos = ?, email = ?, cc = ?, celular = ?, nombreusuario = ?
+       SET nombres = ?, apellidos = ?, email = ?, celular = ?, nombreusuario = ?
        WHERE id = ?`,
       [
         perfil.nombres,
         perfil.apellidos,
         perfil.email,
-        perfil.cc,
         perfil.celular,
         perfil.nombreUsuario,
         req.sesion.id,
@@ -251,17 +238,18 @@ export async function eliminarPerfil(req, res, next) {
       });
     }
 
-    // prestamos.usuario_id tiene ON DELETE CASCADE: sin este control se perderían préstamos sin devolver
+    // prestamos.usuario_id tiene ON DELETE CASCADE: sin este control se perderían préstamos sin
+    // devolver, y una solicitud borrada dejaría su material apartado para siempre
     const [[{ pendientes }]] = await pool.query(
       `SELECT COUNT(*) AS pendientes FROM prestamos
-       WHERE usuario_id = ? AND estado IN ('ACTIVO', 'VENCIDO')`,
+       WHERE usuario_id = ? AND estado IN ('SOLICITADO', 'ACTIVO', 'VENCIDO')`,
       [req.sesion.id],
     );
 
     if (Number(pendientes) > 0) {
       return res.status(409).json({
         message:
-          "No puedes eliminar tu cuenta mientras tengas préstamos sin devolver.",
+          "No puedes eliminar tu cuenta mientras tengas préstamos sin devolver o solicitudes en curso: cancélalas primero.",
       });
     }
 
